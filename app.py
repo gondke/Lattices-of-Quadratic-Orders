@@ -2,15 +2,21 @@ import streamlit as st
 import numpy as np
 import plotly.graph_objects as go
 import sympy as sp
-from sympy.ntheory.continued_fraction import continued_fraction_periodic
 
 st.set_page_config(page_title="Lattices of Quadratic Orders", layout="wide")
 
 # ==========================================
-# ALGEBRAIC NUMBER THEORY COMPUTATIONS
+# HELPER FUNCTIONS & ALGEBRAIC COMPUTATIONS
 # ==========================================
 
-def get_discriminant(d, is_real=True):
+def is_perfect_square(n: int) -> bool:
+    """Checks if an integer n is a perfect square using SymPy."""
+    if n < 0:
+        return False
+    root, exact = sp.integer_nthroot(int(n), 2)
+    return exact
+
+def get_discriminant(d: int, is_real: bool = True) -> int:
     """
     Discriminant of Z[\sqrt{d}] or Z[\sqrt{-d}].
     For order Z[\sqrt{D}], discriminant Delta = 4 * D.
@@ -18,11 +24,11 @@ def get_discriminant(d, is_real=True):
     D = d if is_real else -d
     return 4 * D
 
-def get_minkowski_bound(d, is_real=True):
+def get_minkowski_bound(d: int, is_real: bool = True) -> float:
     """
     Computes Minkowski bound M_K:
-    Real: (2/pi)^0 * (2!/2^2) * sqrt(|Delta|) = (1/2) * sqrt(4d) = sqrt(d)
-    Imaginary: (2/pi)^1 * (2!/2^2) * sqrt(|Delta|) = (2/pi) * (1/2) * sqrt(4d) = (2/pi) * sqrt(d)
+    Real: (1/2) * sqrt(|Delta|) = sqrt(d)
+    Imaginary: (2/pi) * (1/2) * sqrt(|Delta|) = (2/pi) * sqrt(d)
     """
     delta = get_discriminant(d, is_real)
     if is_real:
@@ -30,7 +36,7 @@ def get_minkowski_bound(d, is_real=True):
     else:
         return (2.0 / np.pi) * 0.5 * np.sqrt(abs(delta))
 
-def compute_imaginary_class_number(d):
+def compute_imaginary_class_number(d: int):
     """
     Computes class number for Z[\sqrt{-d}] using binary quadratic forms (ax^2 + bxy + cy^2).
     Discriminant Delta = -4d. Reduced forms satisfy |b| <= a <= c.
@@ -40,7 +46,6 @@ def compute_imaginary_class_number(d):
     reduced_forms = []
     
     for a in range(1, max_a + 1):
-        # b has same parity as Delta (Delta is even, so b is even)
         for b in range(-a, a + 1):
             if (b**2 - delta) % (4 * a) == 0:
                 c = (b**2 - delta) // (4 * a)
@@ -52,20 +57,17 @@ def compute_imaginary_class_number(d):
                         reduced_forms.append((a, b, c))
     return len(reduced_forms), reduced_forms
 
-def compute_real_class_number(d):
+def compute_real_class_number(d: int):
     """
-    Computes class number for Z[\sqrt{d}] using binary quadratic forms.
+    Computes class number estimate for Z[\sqrt{d}] using reduced binary quadratic forms.
     """
-    if sp.is_square(d):
+    if is_perfect_square(d):
         return "N/A (d is a perfect square)", []
     
     delta = 4 * d
-    # Cycle of reduced forms for real quadratic orders
-    # A form (a, b, c) with b^2 - 4ac = Delta is reduced if 0 < sqrt(Delta) - b < 2|a| < sqrt(Delta) + b
     sqrt_delta = np.sqrt(delta)
     reduced_forms = set()
     
-    # Bound for a
     limit_a = int(np.floor(sqrt_delta / 2.0))
     for a in range(1, limit_a + 1):
         for b in range(1, int(np.floor(sqrt_delta)) + 1):
@@ -74,12 +76,10 @@ def compute_real_class_number(d):
                 if abs(sqrt_delta - 2*abs(a)) < b < sqrt_delta:
                     reduced_forms.add((a, b, c))
                     
-    # Simplified class number estimation for UI (accurate for small d)
-    # Using sympy ideal class group if needed, or form reduction cycles
     h = len(reduced_forms) if len(reduced_forms) > 0 else 1
     return h, list(reduced_forms)
 
-def get_matrix_power(A, k):
+def get_matrix_power(A: np.ndarray, k: int):
     """Computes A^k for matrix A (supports negative integers via inverse)."""
     A_sym = sp.Matrix(A)
     try:
@@ -92,9 +92,9 @@ def get_matrix_power(A, k):
     except Exception as e:
         return None, str(e)
 
-def determine_matrix_class(A):
+def determine_matrix_class(A: np.ndarray) -> str:
     """
-    Classifies a 2x2 integer/real matrix in terms of GL(2, Z) / SL(2, Z).
+    Classifies a 2x2 matrix in terms of GL(2, Z) / SL(2, Z).
     """
     det = int(round(np.linalg.det(A)))
     if det == 1:
@@ -102,7 +102,7 @@ def determine_matrix_class(A):
     elif det == -1:
         return "Member of GL(2, Z) \\ SL(2, Z) (Orientation Reversing Unimodular)"
     elif det != 0:
-        return f"Non-unimodular integer/real matrix with Determinant = {det}"
+        return f"Non-unimodular matrix with Determinant = {det}"
     else:
         return "Singular Matrix (Determinant = 0)"
 
@@ -110,15 +110,13 @@ def determine_matrix_class(A):
 # LATTICE VISUALIZATION (2D & 3D)
 # ==========================================
 
-def generate_lattice_points(basis, grid_range=5):
+def generate_lattice_points(basis: np.ndarray, grid_range: int = 5):
     """
-    Generates 2D lattice vectors: L = { n1 * v1 + n2 * v2 | -N <= n1, n2 <= N }
-    basis: 2x2 matrix where columns are basis vectors v1, v2.
+    Generates lattice vectors: L = { n1 * v1 + n2 * v2 | -N <= n1, n2 <= N }
     """
     n_values = np.arange(-grid_range, grid_range + 1)
     n1, n2 = np.meshgrid(n_values, n_values)
     
-    # Basis vectors
     v1 = basis[:, 0]
     v2 = basis[:, 1]
     
@@ -129,9 +127,8 @@ def generate_lattice_points(basis, grid_range=5):
 
 def create_lattice_plot_3d(X, Y, transform_matrix, scale_factor, rot_angle_deg):
     """
-    Renders interactive 3D plot of the lattice over an embedded grid plane.
+    Renders an interactive 3D plot of the transformed lattice.
     """
-    # Apply user scaling and 2D rotation
     rad = np.radians(rot_angle_deg)
     R_2d = np.array([[np.cos(rad), -np.sin(rad)], [np.sin(rad), np.cos(rad)]])
     
@@ -140,7 +137,7 @@ def create_lattice_plot_3d(X, Y, transform_matrix, scale_factor, rot_angle_deg):
     
     X_t = transformed_pts[0, :]
     Y_t = transformed_pts[1, :]
-    Z_t = np.zeros_like(X_t) # Embedded in Z=0 plane in 3D
+    Z_t = np.zeros_like(X_t)
 
     fig = go.Figure()
 
@@ -152,7 +149,7 @@ def create_lattice_plot_3d(X, Y, transform_matrix, scale_factor, rot_angle_deg):
         name='Lattice Points'
     ))
 
-    # Add origin highlighted
+    # Highlight origin
     fig.add_trace(go.Scatter3d(
         x=[0], y=[0], z=[0],
         mode='markers',
@@ -183,19 +180,17 @@ st.markdown("Explore algebraic and geometric properties of quadratic orders and 
 st.sidebar.header("1. Input Parameters")
 d_val = st.sidebar.number_input("Enter Natural Number (d):", min_value=1, value=2, step=1)
 
-if sp.is_square(d_val):
-    st.sidebar.warning(f"Note: {d_val} is a perfect square. $\mathbb{Z}[\sqrt{{{d_val}}}]$ is not an integral domain of quadratic integers.")
+if is_perfect_square(d_val):
+    st.sidebar.warning(f"Note: {d_val} is a perfect square. $\mathbb{{Z}}[\sqrt{{{d_val}}}]$ is not an integral domain of quadratic integers.")
 
 # Create Tabs for Real and Imaginary Pages
 tab1, tab2 = st.tabs([f"Real Order: ℤ[√{d_val}]", f"Imaginary Order: ℤ[√{-d_val}]"])
 
-def render_order_page(d, is_real=True):
+def render_order_page(d: int, is_real: bool = True):
     symbol = f"\sqrt{{{d}}}" if is_real else f"\sqrt{{-{d}}}"
     st.header(f"Properties & Lattice of $\mathbb{{Z}}[{symbol}]$")
     
-    # ------------------------------------
     # SECTION 1: ALGEBRAIC INVARIANTS
-    # ------------------------------------
     col1, col2, col3 = st.columns(3)
     
     delta = get_discriminant(d, is_real)
@@ -219,20 +214,11 @@ def render_order_page(d, is_real=True):
 
     st.markdown("---")
     
-    # ------------------------------------
     # SECTION 2: MATRIX REPRESENTATIVE A
-    # ------------------------------------
     st.subheader("2. Matrix Representative $A$ & Powers")
-    
     st.write(f"Standard basis for $\mathbb{{Z}}[{symbol}]$ is $\{{\,1,\, {symbol}\,\}}$.")
     
-    # Default basis matrix choice
-    if is_real:
-        # Basis embeddings into R^2: x + y*sqrt(d) -> (x + y*sqrt(d), x - y*sqrt(d)) or standard canonical
-        basis_A = np.array([[1, 0], [0, np.sqrt(d)]])
-    else:
-        # Complex embedding z = x + i*y*sqrt(d) -> (Re(z), Im(z)) = (x, y*sqrt(d))
-        basis_A = np.array([[1, 0], [0, np.sqrt(d)]])
+    basis_A = np.array([[1, 0], [0, np.sqrt(d)]])
 
     c_mat1, c_mat2 = st.columns([1, 2])
     
@@ -240,8 +226,8 @@ def render_order_page(d, is_real=True):
         st.write("**Matrix Representative $A$ (Basis Generator):**")
         a11 = st.number_input(f"A[0,0] ({'Real' if is_real else 'Imag'})", value=float(basis_A[0,0]), key=f"a11_{is_real}")
         a12 = st.number_input(f"A[0,1] ({'Real' if is_real else 'Imag'})", value=float(basis_A[0,1]), key=f"a12_{is_real}")
-        a21 = st.number_input(f"A[2,0] ({'Real' if is_real else 'Imag'})", value=float(basis_A[1,0]), key=f"a21_{is_real}")
-        a22 = st.number_input(f"A[2,1] ({'Real' if is_real else 'Imag'})", value=float(basis_A[1,1]), key=f"a22_{is_real}")
+        a21 = st.number_input(f"A[1,0] ({'Real' if is_real else 'Imag'})", value=float(basis_A[1,0]), key=f"a21_{is_real}")
+        a22 = st.number_input(f"A[1,1] ({'Real' if is_real else 'Imag'})", value=float(basis_A[1,1]), key=f"a22_{is_real}")
         
         A = np.array([[a11, a12], [a21, a22]])
         
@@ -263,7 +249,7 @@ def render_order_page(d, is_real=True):
             st.write("**Inverse $A^{-1}$:**")
             try:
                 st.write(np.linalg.inv(A))
-            except:
+            except Exception:
                 st.write("Non-invertible")
         with p_col3:
             st.write(f"**Power $A^{{{k_val}}}$:**")
@@ -274,9 +260,7 @@ def render_order_page(d, is_real=True):
 
     st.markdown("---")
 
-    # ------------------------------------
     # SECTION 3: INTERACTIVE LATTICE GRID
-    # ------------------------------------
     st.subheader("3. Interactive Lattice Grid & Transformations")
     
     t_col1, t_col2 = st.columns([1, 2])
@@ -300,7 +284,6 @@ def render_order_page(d, is_real=True):
     X, Y, n1, n2 = generate_lattice_points(A, grid_range=grid_range)
     
     with t_col2:
-        # 3D Plot Display
         fig3d = create_lattice_plot_3d(X, Y, M, scale, rot_deg)
         st.plotly_chart(fig3d, use_container_width=True)
 
