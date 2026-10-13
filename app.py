@@ -6,7 +6,7 @@ import sympy as sp
 st.set_page_config(page_title="Lattices of Quadratic Orders", layout="wide")
 
 # ==========================================
-# HELPER FUNCTIONS & ALGEBRAIC COMPUTATIONS
+# ALGEBRAIC & QUADRATIC FORM COMPUTATIONS
 # ==========================================
 
 def is_perfect_square(n: int) -> bool:
@@ -17,67 +17,70 @@ def is_perfect_square(n: int) -> bool:
     return exact
 
 def get_discriminant(d: int, is_real: bool = True) -> int:
-    """
-    Discriminant of Z[\sqrt{d}] or Z[\sqrt{-d}].
-    For order Z[\sqrt{D}], discriminant Delta = 4 * D.
-    """
-    D = d if is_real else -d
-    return 4 * D
+    """Discriminant of Z[\sqrt{d}] (Delta = 4d) or Z[\sqrt{-d}] (Delta = -4d)."""
+    return 4 * d if is_real else -4 * d
 
 def get_minkowski_bound_sym(d: int, is_real: bool = True):
-    """
-    Returns exact Symbolic Minkowski bound:
-    Real: sqrt(d)
-    Imaginary: (2/pi) * sqrt(d)
-    """
-    d_sym = sp.Symbol('d')
+    """Exact Symbolic Minkowski bound."""
     if is_real:
         return sp.sqrt(d)
     else:
         return (2 / sp.pi) * sp.sqrt(d)
 
-def compute_imaginary_class_number(d: int):
+def get_reduced_binary_forms(d: int, is_real: bool = True):
     """
-    Computes class number for Z[\sqrt{-d}] using binary quadratic forms (ax^2 + bxy + cy^2).
-    Discriminant Delta = -4d. Reduced forms satisfy |b| <= a <= c.
+    Computes reduced binary quadratic forms (a, b, c) of discriminant Delta.
+    Categorizes them into Principal Class (Identity) and Non-Principal Classes.
     """
-    delta = -4 * d
-    max_a = int(np.floor(np.sqrt(abs(delta) / 3.0)))
-    reduced_forms = []
+    delta = get_discriminant(d, is_real)
+    forms = []
     
-    for a in range(1, max_a + 1):
-        for b in range(-a, a + 1):
-            if (b**2 - delta) % (4 * a) == 0:
-                c = (b**2 - delta) // (4 * a)
-                if c >= a:
-                    if abs(b) == a or c == a:
-                        if b >= 0:
-                            reduced_forms.append((a, b, c))
-                    else:
-                        reduced_forms.append((a, b, c))
-    return len(reduced_forms), reduced_forms
+    if not is_real:
+        # Imaginary case: |b| <= a <= c
+        max_a = int(np.floor(np.sqrt(abs(delta) / 3.0)))
+        for a in range(1, max_a + 1):
+            for b in range(-a, a + 1):
+                if (b**2 - delta) % (4 * a) == 0:
+                    c = (b**2 - delta) // (4 * a)
+                    if c >= a:
+                        if abs(b) == a or c == a:
+                            if b >= 0:
+                                forms.append((a, b, c))
+                        else:
+                            forms.append((a, b, c))
+    else:
+        # Real case: 0 < sqrt(Delta) - b < 2|a| < sqrt(Delta) + b
+        if is_perfect_square(d):
+            return [(1, 0, -d)]
+        
+        sqrt_delta = np.sqrt(delta)
+        limit_a = int(np.floor(sqrt_delta / 2.0))
+        seen = set()
+        for a in range(1, limit_a + 1):
+            for b in range(1, int(np.floor(sqrt_delta)) + 1):
+                if (b**2 - delta) % (4 * a) == 0:
+                    c = (b**2 - delta) // (4 * a)
+                    if abs(sqrt_delta - 2*abs(a)) < b < sqrt_delta:
+                        if (a, b, c) not in seen:
+                            seen.add((a, b, c))
+                            forms.append((a, b, c))
+        if not forms:
+            forms = [(1, 0, -d)]
+            
+    return forms
 
-def compute_real_class_number(d: int):
+def form_to_matrix_sym(a: int, b: int, c: int, d: int, is_real: bool = True) -> sp.Matrix:
     """
-    Computes class number estimate for Z[\sqrt{d}] using reduced binary quadratic forms.
+    Constructs the canonical 2x2 lattice basis matrix corresponding to form (a,b,c) / ideal class.
     """
-    if is_perfect_square(d):
-        return "N/A (d is a perfect square)", []
-    
-    delta = 4 * d
-    sqrt_delta = np.sqrt(delta)
-    reduced_forms = set()
-    
-    limit_a = int(np.floor(sqrt_delta / 2.0))
-    for a in range(1, limit_a + 1):
-        for b in range(1, int(np.floor(sqrt_delta)) + 1):
-            if (b**2 - delta) % (4 * a) == 0:
-                c = (b**2 - delta) // (4 * a)
-                if abs(sqrt_delta - 2*abs(a)) < b < sqrt_delta:
-                    reduced_forms.add((a, b, c))
-                    
-    h = len(reduced_forms) if len(reduced_forms) > 0 else 1
-    return h, list(reduced_forms)
+    if a == 1:
+        # Principal ideal basis matrix
+        return sp.Matrix([[1, 0], [0, sp.sqrt(d) if is_real else sp.sqrt(-d)]])
+    else:
+        # Non-principal ideal lattice matrix
+        # Basis: {a, (b + sqrt(Delta))/2}
+        sqrt_part = sp.sqrt(d) if is_real else sp.sqrt(-d)
+        return sp.Matrix([[a, sp.Rational(b, 2)], [0, sqrt_part]])
 
 def get_symbolic_matrix_power(A_sym: sp.Matrix, k: int):
     """Computes exact symbolic A^k for SymPy matrix A."""
@@ -92,9 +95,7 @@ def get_symbolic_matrix_power(A_sym: sp.Matrix, k: int):
         return None, str(e)
 
 def determine_matrix_class(A_sym: sp.Matrix) -> str:
-    """
-    Classifies a 2x2 matrix in terms of GL(2, Z) / SL(2, Z).
-    """
+    """Classifies a matrix in terms of GL(2, Z) / SL(2, Z)."""
     try:
         det = sp.simplify(A_sym.det())
         if det == 1:
@@ -109,21 +110,18 @@ def determine_matrix_class(A_sym: sp.Matrix) -> str:
         return "General Matrix"
 
 # ==========================================
-# LATTICE VISUALIZATION (2D & 3D)
+# LATTICE VISUALIZATION (3D)
 # ==========================================
 
 def generate_lattice_points(basis_num: np.ndarray, grid_range: int = 5):
-    """
-    Generates lattice vectors for both standard Z^2 grid and transformed order lattice.
-    """
+    """Generates lattice vectors for standard Z^2 grid and transformed order lattice."""
     n_values = np.arange(-grid_range, grid_range + 1)
     n1, n2 = np.meshgrid(n_values, n_values)
     
-    # Standard Z^2 integer grid points
-    X_grid = n1.flatten()
-    Y_grid = n2.flatten()
+    # Standard Z^2 integer grid
+    X_grid, Y_grid = n1.flatten(), n2.flatten()
     
-    # Transformed lattice points generated by basis_num
+    # Transformed ideal lattice points
     v1 = basis_num[:, 0]
     v2 = basis_num[:, 1]
     
@@ -132,12 +130,8 @@ def generate_lattice_points(basis_num: np.ndarray, grid_range: int = 5):
     
     return X_grid, Y_grid, X_lat.flatten(), Y_lat.flatten()
 
-def create_lattice_plot_3d(X_grid, Y_grid, X_lat, Y_lat, transform_matrix_num, scale_factor, rot_angle_deg, d, is_real):
-    """
-    Renders an interactive 3D plot with distinct colors for:
-    1. Z^2 standard grid
-    2. Z[\sqrt{d}] / Z[\sqrt{-d}] order lattice
-    """
+def create_lattice_plot_3d(X_grid, Y_grid, X_lat, Y_lat, transform_matrix_num, scale_factor, rot_angle_deg, d, is_real, class_label):
+    """Renders interactive 3D plot with distinct colors for Z^2 and Ideal Lattice."""
     rad = np.radians(rot_angle_deg)
     R_2d = np.array([[np.cos(rad), -np.sin(rad)], [np.sin(rad), np.cos(rad)]])
     
@@ -147,7 +141,7 @@ def create_lattice_plot_3d(X_grid, Y_grid, X_lat, Y_lat, transform_matrix_num, s
     X_g_t, Y_g_t = trans_grid[0, :], trans_grid[1, :]
     Z_g_t = np.zeros_like(X_g_t)
 
-    # Transform Order Lattice Points Z[\sqrt{\pm d}]
+    # Transform Ideal Lattice Points
     pts_lat = np.vstack([X_lat, Y_lat])
     trans_lat = scale_factor * (transform_matrix_num @ R_2d @ pts_lat)
     X_l_t, Y_l_t = trans_lat[0, :], trans_lat[1, :]
@@ -155,24 +149,23 @@ def create_lattice_plot_3d(X_grid, Y_grid, X_lat, Y_lat, transform_matrix_num, s
 
     fig = go.Figure()
 
-    # Trace 1: Standard Integer Grid Z^2 (Amber/Grey)
+    # Trace 1: Standard Integer Grid Z^2
     fig.add_trace(go.Scatter3d(
         x=X_g_t, y=Y_g_t, z=Z_g_t,
         mode='markers',
-        marker=dict(size=4, color='#FF9900', opacity=0.5),
-        name='Standard Grid Points (ℤ²)'
+        marker=dict(size=4, color='#FF9900', opacity=0.4),
+        name='Standard Grid (ℤ²)'
     ))
 
-    # Trace 2: Transformed Order Lattice Z[\sqrt{\pm d}] (Cyan/Blue)
-    label_order = f"ℤ[√{d}]" if is_real else f"ℤ[√{-d}]"
+    # Trace 2: Ideal Class Lattice
     fig.add_trace(go.Scatter3d(
         x=X_l_t, y=Y_l_t, z=Z_l_t,
         mode='markers',
         marker=dict(size=6, color='#00E5FF', opacity=0.9),
-        name=f'Order Lattice ({label_order})'
+        name=f'Lattice of {class_label}'
     ))
 
-    # Highlight origin (0,0,0)
+    # Highlight origin
     fig.add_trace(go.Scatter3d(
         x=[0], y=[0], z=[0],
         mode='markers',
@@ -189,7 +182,7 @@ def create_lattice_plot_3d(X_grid, Y_grid, X_lat, Y_lat, transform_matrix_num, s
         ),
         legend=dict(x=0, y=1),
         margin=dict(l=0, r=0, b=0, t=30),
-        title="3D Perspective of Lattice Projection"
+        title=f"3D Lattice Geometry: {class_label}"
     )
     return fig
 
@@ -198,11 +191,11 @@ def create_lattice_plot_3d(X_grid, Y_grid, X_lat, Y_lat, transform_matrix_num, s
 # ==========================================
 
 st.title("🌐 Lattices of $\mathbb{Z}[\sqrt{d}]$ & $\mathbb{Z}[\sqrt{-d}]$")
-st.markdown("Explore algebraic and geometric properties of quadratic orders and their lattice representations.")
+st.markdown("Explore algebraic invariants, class groups, and geometry of quadratic orders.")
 
 # Sidebar Controls
 st.sidebar.header("1. Input Parameters")
-d_val = st.sidebar.number_input("Enter Natural Number (d):", min_value=1, value=2, step=1)
+d_val = st.sidebar.number_input("Enter Natural Number (d):", min_value=1, value=5, step=1)
 
 if is_perfect_square(d_val):
     st.sidebar.warning(f"Note: {d_val} is a perfect square. $\mathbb{{Z}}[\sqrt{{{d_val}}}]$ is not an integral domain of quadratic integers.")
@@ -215,51 +208,72 @@ def render_order_page(d: int, is_real: bool = True):
     st.header(f"Properties & Lattice of $\mathbb{{Z}}[{symbol}]$")
     
     # ------------------------------------
-    # SECTION 1: ALGEBRAIC INVARIANTS
+    # SECTION 1: ALGEBRAIC INVARIANTS & CLASS GROUP
     # ------------------------------------
-    col1, col2, col3 = st.columns(3)
-    
     delta = get_discriminant(d, is_real)
     m_bound_sym = get_minkowski_bound_sym(d, is_real)
     m_bound_val = float(m_bound_sym.evalf())
+    forms = get_reduced_binary_forms(d, is_real)
+    h = len(forms)
     
-    if is_real:
-        h, forms = compute_real_class_number(d)
-    else:
-        h, forms = compute_imaginary_class_number(d)
-        
+    col1, col2, col3 = st.columns(3)
     with col1:
         st.metric("Discriminant (Δ)", f"{delta}")
     with col2:
-        st.markdown(f"**Minkowski Bound ($M_K$):**")
+        st.markdown("**Minkowski Bound ($M_K$):**")
         st.latex(f"M_K = {sp.latex(m_bound_sym)} \\approx {m_bound_val:.4f}")
     with col3:
         st.metric("Class Number (h)", f"{h}")
-        
-    with st.expander("Show Reduced Binary Quadratic Forms"):
-        st.write("Reduced forms $(a, b, c)$ representing ideal classes:")
-        st.json(forms)
 
     st.markdown("---")
     
     # ------------------------------------
-    # SECTION 2: MATRIX REPRESENTATIVE A
+    # SECTION 2: CLASS GROUP & INTERACTIVE CLASS SELECTION
     # ------------------------------------
-    st.subheader("2. Matrix Representative $A$ & Powers")
-    st.write(f"Standard basis for $\mathbb{{Z}}[{symbol}]$ is $\{{\,1,\, {symbol}\,\}}$.")
+    st.subheader("2. Class Group $Cl(K)$ & Quadratic Forms")
+    st.write(f"The order has **{h} ideal class(es)** corresponding to the reduced binary quadratic forms below:")
     
+    # Display Quadratic Forms in Textbook Typesetting
+    form_options = []
+    for idx, (a, b, c) in enumerate(forms):
+        is_principal = (a == 1)
+        type_str = "Principal Class [Identity]" if is_principal else f"Non-Principal Class #{idx}"
+        form_latex = f"Q_{{{idx+1}}}(x, y) = {a}x^2 + ({b})xy + ({c})y^2"
+        form_options.append((idx, a, b, c, type_str, form_latex))
+
+    # Interactive Radio / Button Selection for Ideal Classes
+    selected_idx = st.radio(
+        "Select an Ideal Class from $Cl(K)$ to inspect its Matrix Representative & Lattice:",
+        options=[opt[0] for opt in form_options],
+        format_func=lambda i: f"Class [{i+1}]: {form_options[i][4]}  ⟶  {form_options[i][2]**2 - 4*form_options[i][1]*form_options[i][3]} | Q(x,y) = {form_options[i][1]}x² + {form_options[i][2]}xy + {form_options[i][3]}y²",
+        key=f"class_select_{is_real}_{d}"
+    )
+
+    sel_idx, sel_a, sel_b, sel_c, sel_type, sel_latex = form_options[selected_idx]
+    
+    st.markdown(f"**Selected Form Typesetting:**")
+    st.latex(f"{sel_latex} \quad \\text{{({sel_type})}}")
+
+    st.markdown("---")
+    
+    # ------------------------------------
+    # SECTION 3: MATRIX REPRESENTATIVE A & POWERS
+    # ------------------------------------
+    st.subheader(f"3. Matrix Representative $A$ for {sel_type}")
+    
+    # Default basis matrix derived directly from selected ideal class
+    A_default = form_to_matrix_sym(sel_a, sel_b, sel_c, d, is_real)
+
     c_mat1, c_mat2 = st.columns([1, 2])
     
     with c_mat1:
         st.write("**Matrix Representative $A$ (Basis Generator):**")
-        st.caption("Input entries using SymPy notation (e.g., `sqrt(d)`, `1`, `0`):")
+        st.caption("Customizable entry notation (e.g., `sqrt(d)`, `1`, `0`):")
         
-        default_a22 = f"sqrt({d})"
-        
-        a11_str = st.text_input("A[0,0]", value="1", key=f"a11_s_{is_real}")
-        a12_str = st.text_input("A[0,1]", value="0", key=f"a12_s_{is_real}")
-        a21_str = st.text_input("A[1,0]", value="0", key=f"a21_s_{is_real}")
-        a22_str = st.text_input("A[1,1]", value=default_a22, key=f"a22_s_{is_real}")
+        a11_str = st.text_input("A[0,0]", value=str(A_default[0,0]), key=f"a11_s_{is_real}_{selected_idx}")
+        a12_str = st.text_input("A[0,1]", value=str(A_default[0,1]), key=f"a12_s_{is_real}_{selected_idx}")
+        a21_str = st.text_input("A[1,0]", value=str(A_default[1,0]), key=f"a21_s_{is_real}_{selected_idx}")
+        a22_str = st.text_input("A[1,1]", value=str(A_default[1,1]), key=f"a22_s_{is_real}_{selected_idx}")
         
         try:
             A_sym = sp.Matrix([
@@ -267,19 +281,19 @@ def render_order_page(d: int, is_real: bool = True):
                 [sp.sympify(a21_str), sp.sympify(a22_str)]
             ])
         except Exception as e:
-            st.error(f"Invalid symbolic input: {e}")
-            A_sym = sp.Matrix([[1, 0], [0, sp.sqrt(d)]])
+            st.error(f"Invalid input: {e}")
+            A_sym = A_default
             
         st.write("**Textbook Matrix $A$:**")
         st.latex(f"A = {sp.latex(A_sym)}")
         
-        st.write("**Class of $A$:**")
+        st.write("**Class of Matrix $A$:**")
         st.info(determine_matrix_class(A_sym))
 
     with c_mat2:
         st.write("**Matrix Transformations & Powers:**")
         k_val = st.select_slider("Select power $k \in \{-5, -4, -3, -2, 2, 3, 4, 5\}$:", 
-                                 options=[-5, -4, -3, -2, 2, 3, 4, 5], value=2, key=f"k_s_{is_real}")
+                                 options=[-5, -4, -3, -2, 2, 3, 4, 5], value=2, key=f"k_s_{is_real}_{selected_idx}")
         
         A_k_sym, err = get_symbolic_matrix_power(A_sym, k_val)
         
@@ -303,23 +317,23 @@ def render_order_page(d: int, is_real: bool = True):
     st.markdown("---")
 
     # ------------------------------------
-    # SECTION 3: INTERACTIVE LATTICE GRID
+    # SECTION 4: LIVE LATTICE GRID & TRANSFORMATIONS
     # ------------------------------------
-    st.subheader("3. Interactive Lattice Grid & Transformations")
+    st.subheader("4. Live Geometric Deformation of the Ideal Lattice")
     
     t_col1, t_col2 = st.columns([1, 2])
     
     with t_col1:
         st.markdown("#### Lattice Controls")
-        grid_range = st.slider("Grid Range (N x N)", 2, 15, 6, key=f"grid_{is_real}")
-        scale = st.slider("Scale Factor", 0.1, 5.0, 1.0, step=0.1, key=f"scale_{is_real}")
-        rot_deg = st.slider("Rotate Angle (Degrees)", 0, 360, 0, step=5, key=f"rot_{is_real}")
+        grid_range = st.slider("Grid Range (N x N)", 2, 15, 6, key=f"grid_{is_real}_{selected_idx}")
+        scale = st.slider("Scale Factor", 0.1, 5.0, 1.0, step=0.1, key=f"scale_{is_real}_{selected_idx}")
+        rot_deg = st.slider("Rotate Angle (Degrees)", 0, 360, 0, step=5, key=f"rot_{is_real}_{selected_idx}")
         
         st.markdown("#### Custom Integer Matrix $M \in M_2(\mathbb{Z})$")
-        m11 = st.number_input("M[0,0]", value=1, step=1, key=f"m11_{is_real}")
-        m12 = st.number_input("M[0,1]", value=0, step=1, key=f"m12_{is_real}")
-        m21 = st.number_input("M[1,0]", value=0, step=1, key=f"m21_{is_real}")
-        m22 = st.number_input("M[1,1]", value=1, step=1, key=f"m22_{is_real}")
+        m11 = st.number_input("M[0,0]", value=1, step=1, key=f"m11_{is_real}_{selected_idx}")
+        m12 = st.number_input("M[0,1]", value=0, step=1, key=f"m12_{is_real}_{selected_idx}")
+        m21 = st.number_input("M[1,0]", value=0, step=1, key=f"m21_{is_real}_{selected_idx}")
+        m22 = st.number_input("M[1,1]", value=1, step=1, key=f"m22_{is_real}_{selected_idx}")
         
         M_sym = sp.Matrix([[m11, m12], [m21, m22]])
         M_num = np.array([[m11, m12], [m21, m22]], dtype=float)
@@ -333,11 +347,11 @@ def render_order_page(d: int, is_real: bool = True):
     except Exception:
         basis_num = np.array([[1, 0], [0, np.sqrt(d)]], dtype=float)
 
-    # Generate lattice points for both Z^2 grid and order lattice
+    # Generate lattice points for both Z^2 grid and chosen ideal lattice
     X_grid, Y_grid, X_lat, Y_lat = generate_lattice_points(basis_num, grid_range=grid_range)
     
     with t_col2:
-        fig3d = create_lattice_plot_3d(X_grid, Y_grid, X_lat, Y_lat, M_num, scale, rot_deg, d, is_real)
+        fig3d = create_lattice_plot_3d(X_grid, Y_grid, X_lat, Y_lat, M_num, scale, rot_deg, d, is_real, sel_type)
         st.plotly_chart(fig3d, use_container_width=True)
 
 # Render Pages inside tabs
